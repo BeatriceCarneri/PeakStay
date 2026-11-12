@@ -1,0 +1,16 @@
+# downloaded data: can be regenerated with the script
+data/raw/
+data/processed/
+
+# secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.ipynb_checkpoints/
+
+# editor and system
+.vscode/
+.DS_Store
