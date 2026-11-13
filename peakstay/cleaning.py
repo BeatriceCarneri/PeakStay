@@ -21,10 +21,23 @@ def clean_altitude(df):
 
 
 def normalize_text(df):
-    """Strip whitespace from the geographic text columns"""
+    """Strip whitespace and unify case variants, avoiding all-caps or all-lowercase."""
     cols = ["region_geo", "municipality_geo", "massif_geo", "locality_geo"]
+
+    def pick_best(group):
+        valid = group.dropna()
+        if valid.empty:
+            return pd.NA
+        counts = valid.value_counts()
+        best = sorted(
+            counts.index,
+            key=lambda x: (x.isupper() or x.islower(), -counts[x]),
+        )
+        return best [0]
+
     for col in cols:
         if col in df.columns:
-            df[col] = df[col].str.strip()
-    return df
+            s = df[col].str.strip()
+            df[col] = s.groupby(s.str.lower(), dropna=False).transform(pick_best)
 
+    return df
