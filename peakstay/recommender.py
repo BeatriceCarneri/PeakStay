@@ -33,7 +33,17 @@ def altitude_score(df, target_altitude):
     return pd.Series(score, index=df.index)
 
 
-def recommend(df, region, municipality=None, target_altitude=None, w_geo=0.7, w_alt=0.3, top_n=10):
+#def category_score(df, target_category):
+    """Score from 0 to 1 for whether each shelter matches the target category."""
+    if "category" not in df.columns:
+        return pd.Series(0.0, index=df.index)
+    return (df["category"] == target_category).astype(float)
+
+
+
+
+def recommend(df, region, municipality=None, target_altitude=None,
+              w_geo=0.7, w_alt=0.3,top_n=70):
     """Return the top_n recommended shelters in the selected region."""
     # only refuges in the selected region are taken into consideration
     sub = df[df["region_geo"] == region].copy()
@@ -41,7 +51,26 @@ def recommend(df, region, municipality=None, target_altitude=None, w_geo=0.7, w_
 
     if target_altitude is not None:
         a_score = altitude_score(sub, target_altitude)
-        sub["score"] = w_geo * g_score + w_alt * a_score
+    else:
+        sub["score"] = g_score
+
+    return sub.sort_values(by=["score", "title"], ascending=[False, True]).head(top_n)
+
+#def recommend(df, region, municipality=None, target_altitude=None,target_category=None,
+#              w_geo=0.5, w_alt=0.2 , w_cat=0.3,top_n=70):
+    """Return the top_n recommended shelters in the selected region."""
+    # only refuges in the selected region are taken into consideration
+    sub = df[df["region_geo"] == region].copy()
+    g_score = geo_score(sub, region, municipality)
+
+    if target_altitude is not None:
+        a_score = altitude_score(sub, target_altitude)
+        
+        if target_category is not None:
+            c_score = category_score(sub, target_category)
+            sub["score"] = w_geo * g_score + w_alt * a_score + w_cat * c_score
+        else:
+            sub["score"] = w_geo * g_score + w_alt * a_score
     else:
         sub["score"] = g_score
 
