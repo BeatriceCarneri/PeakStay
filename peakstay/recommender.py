@@ -10,15 +10,15 @@ def geo_score(df, region, municipality=None):
     score = pd.Series(0.0, index=df.index)
 
     # same region -> 1/3
-    ...
+    score[df["region_geo"] == region] = 1/3
 
     if municipality:
         # massifs of the shelters that are in the chosen municipality
-        massifs = ...
+        massifs = df.loc[df["municipality_geo"] == municipality, "massif_geo"].dropna().unique()
         # same massif -> 2/3
-        ...
+        score[df["massif_geo"].isin(massifs)] = 2/3
         # same municipality -> 1
-        ...
+        score[df["municipality_geo"] == municipality] = 1.0
     return score
 
 
@@ -27,10 +27,22 @@ def altitude_score(df, target_altitude):
     alt = df["altitude_geo"].to_numpy(dtype=float)
     span = np.nanmax(alt) - np.nanmin(alt)
     # 1 - |difference| / span, with NaN treated as 0
-    ...
+    score = 1.0 - np.abs(alt - target_altitude) / span
+    score = np.nan_to_num(score, nan=0.0)
+    score = np.clip(score, 0.0, 1.0)
+    return pd.Series(score, index=df.index)
 
 
 def recommend(df, region, municipality=None, target_altitude=None,
               w_geo=0.7, w_alt=0.3, top_n=10):
     """Return the top_n shelters, sorted by final score."""
-    ...
+    result = df[df["region_geo"] == region].copy()
+    g_score = geo_score(result, region, municipality)
+
+    if target_altitude is not None:
+        a_score = altitude_score(result, target_altitude)
+        result["score"] = w_geo * g_score + w_alt * a_score
+    else:
+        result["score"] = g_score
+
+    return result.sort_values(by=["score", "title"], ascending=[False, True]).head(top_n)
