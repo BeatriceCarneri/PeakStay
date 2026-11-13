@@ -20,6 +20,14 @@ def clean_altitude(df):
     return df
 
 
+def keep_staffed_open(df):
+    """Keep only staffed shelters that are currently operative."""
+    df = df.copy()
+    is_staffed = df["type"].str.strip() == "Rifugio custodito" 
+    is_open = df["status"].str.strip() == "In attività"    
+    return df[is_staffed & is_open].reset_index(drop=True)
+
+
 def normalize_text(df):
     """Strip whitespace and unify case variants, avoiding all-caps or all-lowercase."""
     cols = ["region_geo", "municipality_geo", "massif_geo", "locality_geo"]
