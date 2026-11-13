@@ -34,7 +34,7 @@ def fetch_all_shelters(delay=0.2):
 
         page += 1
         time.sleep(delay)
-
+    return shelters
 
 
 def save_raw(shelters, path):
