@@ -54,7 +54,7 @@ def recommend(df, region, municipality=None, target_altitude=None,
     else:
         sub["score"] = g_score
 
-    return sub.sort_values(by=["score", "title"], ascending=[False, True]).head(top_n)
+    return sub.sort_values(by=["score", "alias"], ascending=[False, True]).head(top_n)
 
 #def recommend(df, region, municipality=None, target_altitude=None,target_category=None,
 #              w_geo=0.5, w_alt=0.2 , w_cat=0.3,top_n=70):
