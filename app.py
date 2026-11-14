@@ -64,11 +64,20 @@ with col_filters:
 
     # 3) altitude: optional
     use_altitude = st.checkbox("I have a preferred altitude")
-    target = None
+    target_altitude = None
     if use_altitude:
-        target = st.slider(
+        target_altitude = st.slider(
             "Altitude (m)", min_value=500, max_value=5000, value=2000, step=50
         )  # the min and max are: 611, 4554 m
+    
+    # 4) category: optional
+    use_category = st.checkbox("I have a preferred category")
+    target_category = None
+    if use_category:
+        categories = sorted(df["category"].dropna().unique())
+        target_category = st.selectbox(
+            "Category (optional)", categories, index=None, placeholder="Any"
+        )
 
     # Search button placed under the filters
     find_clicked = st.button("Find refuges")
@@ -78,7 +87,7 @@ with col_results:
     st.subheader("Recommended Refuges")
 
     # Calculate filtered results ALWAYS (outside the button block so filters persist on rerun)
-    result = recommend(df, region, municipality, target)
+    result = recommend(df, region, municipality, target_altitude, target_category)
 
     # Initialize list of discarded shelter indices in session state
     if "discarded_indices" not in st.session_state:

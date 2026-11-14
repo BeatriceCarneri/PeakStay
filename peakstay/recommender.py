@@ -27,37 +27,40 @@ def altitude_score(df, target_altitude):
     alt = df["altitude_geo"].to_numpy(dtype=float)
     span = np.nanmax(alt) - np.nanmin(alt)
     # "relative error" between 0 and 1
-    score = np.clip(1.0 - np.abs(alt - target_altitude) / span, 0.0, 1.0)
+    score = np.clip(1.0 - (alt - target_altitude) / span, 0.0, 1.0)
     score = np.nan_to_num(score, nan=0.0)
-    score = np.clip(score, 0.0, 1.0)
+    score = np.where((score >= 0.0) & (score <= 1.0), score, 0.0)
     return pd.Series(score, index=df.index)
 
 
-#def category_score(df, target_category):
-    """Score from 0 to 1 for whether each shelter matches the target category."""
-    if "category" not in df.columns:
+def category_score(df, target_category):
+    """Score from 0 to 1 based on ASCII distance using ord() between categories A and E."""
+    if "category" not in df.columns or not target_category:
         return pd.Series(0.0, index=df.index)
-    return (df["category"] == target_category).astype(float)
+
+    target_char = str(target_category).strip().upper()[0]
+    target_code = ord(target_char)
+
+    # Convert the first letter of each category to its ASCII code (A=65 ... E=69)
+    cat_codes = (
+        df["category"]
+        .fillna("E")
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .apply(lambda x: ord(x[0]) if len(x) > 0 else ord("E"))
+        .to_numpy(dtype=float)
+    )
+
+    # Distance between A (65) and E (69) is 4
+    score = 1.0 - (target_code - cat_codes) / 4.0
+    score = np.nan_to_num(score, nan=0.0)
+    score = np.where((score >= 0.0) & (score <= 1.0), score, 0.0)
+    return pd.Series(score, index=df.index)
 
 
-
-
-def recommend(df, region, municipality=None, target_altitude=None,
-              w_geo=0.7, w_alt=0.3,top_n=70):
-    """Return the top_n recommended shelters in the selected region."""
-    # only refuges in the selected region are taken into consideration
-    sub = df[df["region_geo"] == region].copy()
-    g_score = geo_score(sub, region, municipality)
-
-    if target_altitude is not None:
-        a_score = altitude_score(sub, target_altitude)
-    else:
-        sub["score"] = g_score
-
-    return sub.sort_values(by=["score", "alias"], ascending=[False, True]).head(top_n)
-
-#def recommend(df, region, municipality=None, target_altitude=None,target_category=None,
-#              w_geo=0.5, w_alt=0.2 , w_cat=0.3,top_n=70):
+def recommend(df, region, municipality=None, target_altitude=None,target_category=None,
+              w_geo=0.5, w_alt=0.25 , w_cat=0.25,top_n=70):
     """Return the top_n recommended shelters in the selected region."""
     # only refuges in the selected region are taken into consideration
     sub = df[df["region_geo"] == region].copy()
@@ -70,8 +73,13 @@ def recommend(df, region, municipality=None, target_altitude=None,
             c_score = category_score(sub, target_category)
             sub["score"] = w_geo * g_score + w_alt * a_score + w_cat * c_score
         else:
-            sub["score"] = w_geo * g_score + w_alt * a_score
+            sub["score"] = (w_geo + w_cat / 2) * g_score + (w_alt + w_cat / 2) * a_score
     else:
-        sub["score"] = g_score
+
+        if target_category is not None:
+            c_score = category_score(sub, target_category)
+            sub["score"] = (w_geo + w_alt / 2) * g_score + (w_cat + w_alt / 2) * c_score
+        else:
+            sub["score"] = g_score
 
     return sub.sort_values(by=["score", "title"], ascending=[False, True]).head(top_n)
