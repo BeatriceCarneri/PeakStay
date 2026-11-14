@@ -4,30 +4,24 @@ import numpy as np
 import pandas as pd
 
 
-def geo_score(df, region, municipality=None):
+def geo_score(df, municipality):
     """Score from 0 to 1 for how close each shelter is to the search area."""
     # start from 0 for every shelter
     score = pd.Series(0.0, index=df.index)
-
-    # for same region: 1/3
-    score[df["region_geo"] == region] = 1/3
-
-    if municipality:
-        # massifs of the shelters that are in the chosen municipality
-        massifs = df.loc[df["municipality_geo"] == municipality, "massif_geo"].dropna().unique()
-        # for same massif: 2/3
-        score[df["massif_geo"].isin(massifs)] = 2/3
-        # for same municipality: 1
-        score[df["municipality_geo"] == municipality] = 1.0
+    score[df["municipality_geo"] == municipality] = 1.0
     return score
 
 
-def altitude_score(df, target_altitude):
+def altitude_score(df, target_altitude_min=None, target_altitude_max=None):
     """Score from 0 to 1 for how close each altitude is to the target."""
     alt = df["altitude_geo"].to_numpy(dtype=float)
-    span = np.nanmax(alt) - np.nanmin(alt)
+
+    target_altitude_min = target_altitude_min or np.nannmin(alt)
+    target_altitude_max = target_altitude_max or np.nannmax(alt)
+
+    span = target_altitude_max - target_altitude_min
     # "relative error" between 0 and 1
-    score = np.clip(1.0 - (alt - target_altitude) / span, 0.0, 1.0)
+    score = 1.0 - (target_altitude_max - alt) / span
     score = np.nan_to_num(score, nan=0.0)
     score = np.where((score >= 0.0) & (score <= 1.0), score, 0.0)
     return pd.Series(score, index=df.index)
@@ -59,27 +53,39 @@ def category_score(df, target_category):
     return pd.Series(score, index=df.index)
 
 
-def recommend(df, region, municipality=None, target_altitude=None,target_category=None,
-              w_geo=0.5, w_alt=0.25 , w_cat=0.25,top_n=70):
+def recommend(df, region, municipality=None, target_altitude_min=None, target_altitude_max=None,target_category=None,
+              w_geo=0.2, w_alt=0.3 , w_cat=0.5,top_n=70):
     """Return the top_n recommended shelters in the selected region."""
     # only refuges in the selected region are taken into consideration
     sub = df[df["region_geo"] == region].copy()
-    g_score = geo_score(sub, region, municipality)
+    if target_altitude_min is not None:
+        sub = sub[sub["altitude_geo"] >= target_altitude_min].copy()
+    if target_altitude_max is not None:
+        sub = sub[sub["altitude_geo"] <= target_altitude_max].copy()
+    if target_category is not None:
+        sub = sub[sub["category"] <= target_category].copy()
 
-    if target_altitude is not None:
-        a_score = altitude_score(sub, target_altitude)
+    if sub.empty:
+        return sub
+
+    total_score = pd.Series(0.0, index=sub.index)
+    total_weight = 0.0
+
+    if municipality is not None:
+        total_score += w_geo * geo_score(sub, municipality)
+        total_weight = w_geo
+
+    if (target_altitude_min is not None) or (target_altitude_max is not None):
+        total_score += w_alt * altitude_score(sub, target_altitude_min, target_altitude_max)
+        total_weight = w_alt
         
-        if target_category is not None:
-            c_score = category_score(sub, target_category)
-            sub["score"] = w_geo * g_score + w_alt * a_score + w_cat * c_score
-        else:
-            sub["score"] = (w_geo + w_cat / 2) * g_score + (w_alt + w_cat / 2) * a_score
+    if target_category is not None:
+        total_score += w_cat * category_score(sub, target_category)
+        total_weight = w_cat
+
+    if total_weight > 0:
+        sub["score"] = total_score / total_weight
     else:
+        sub["score"] = 0.0
 
-        if target_category is not None:
-            c_score = category_score(sub, target_category)
-            sub["score"] = (w_geo + w_alt / 2) * g_score + (w_cat + w_alt / 2) * c_score
-        else:
-            sub["score"] = g_score
-
-    return sub.sort_values(by=["score", "title"], ascending=[False, True]).head(top_n)
+    return sub.sort_values(by=["score", "altitude_geo"], ascending=[False, False]).head(top_n)
