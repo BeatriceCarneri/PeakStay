@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import streamlit as st
+import math as mt
 
 from peakstay.api import fetch_all_shelters, load_raw, save_raw
 from peakstay.cleaning import build_dataframe, clean_altitude, keep_staffed_open, normalize_text
@@ -22,7 +23,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-RAW_PATH = Path("data/raw/shelters.json")
+RAW_PATH = Path(__file__).parent / "data" / "raw" / "shelters.json"
 
 
 @st.cache_data
@@ -64,10 +65,13 @@ with col_filters:
 
     # 3) altitude: optional
     use_altitude = st.checkbox("I have a preferred altitude")
-    target_altitude = None
+    min_alt = mt.floor(df.loc[df["region_geo"] == region, "altitude_geo"].min() / 50) * 50
+    max_alt = mt.ceil(df.loc[df["region_geo"] == region, "altitude_geo"].max() / 50) * 50
+    target_altitude_min = None
+    target_altitude_max = None
     if use_altitude:
-        target_altitude = st.slider(
-            "Altitude (m)", min_value=500, max_value=5000, value=2000, step=50
+        target_altitude_min, target_altitude_max = st.slider(
+            "Altitude range(m)", min_value=min_alt, max_value=max_alt, value=(min_alt, max_alt), step=50
         )  # the min and max are: 611, 4554 m
     
     # 4) category: optional
@@ -87,7 +91,7 @@ with col_results:
     st.subheader("Recommended Refuges")
 
     # Calculate filtered results ALWAYS (outside the button block so filters persist on rerun)
-    result = recommend(df, region, municipality, target_altitude, target_category)
+    result = recommend(df, region, municipality, target_altitude_min, target_altitude_max, target_category)
 
     # Initialize list of discarded shelter indices in session state
     if "discarded_indices" not in st.session_state:
@@ -125,10 +129,11 @@ with col_results:
                 with col_info:
                     st.subheader(row["alias"])
                     st.markdown(
-                        f"**Municipality:** {row['municipality_geo']}  \n"
                         f"**Locality:** {row['locality_geo']}  \n"
-                        f"**Massif:** {row['massif_geo']}  \n"
-                        f"**Altitude:** {int(row['altitude_geo'])}"
+                        f"**Municipality:** {row['municipality_geo']}  \n"
+                        f"**Province:** {row['province_geo']}  \n"
+                        f"**Altitude:** {int(row['altitude_geo'])}  \n"
+                        f"**Category:** {row['category']}"
                     )
 
                 with col_action:
@@ -140,8 +145,6 @@ with col_results:
                 # Expandable section with extra text details only
                 with st.expander("More info"):
                     st.write(f"**Official name:** {row.get('title', 'N/A')}")
-                    st.write(f"**Category:** {row.get('category', 'N/A')}")
                     st.write(f"**Website:** {row.get('webAddress_contact', 'N/A')}")
                     st.write(f"**Region:** {row.get('region_geo', 'N/A')}")
-                    st.write(f"**Province:** {row.get('province_geo', 'N/A')}")
                     st.write(f"**Massif:** {row.get('massif_geo', 'N/A')}")
