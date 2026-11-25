@@ -4,6 +4,7 @@ from pathlib import Path
 
 import streamlit as st
 import math as mt
+import pandas as pd
 
 from peakstay.api import fetch_all_shelters, load_raw, save_raw
 from peakstay.cleaning import build_dataframe, clean_altitude, keep_staffed_open, normalize_text
@@ -145,6 +146,8 @@ with col_results:
                 # Expandable section with extra text details only
                 with st.expander("More info"):
                     st.write(f"**Official name:** {row.get('title', 'N/A')}")
-                    st.write(f"**Website:** {row.get('webAddress_contact', 'N/A')}")
+                    website = row.get("webAddress_contact")
+                    if pd.notna(website) and str(website).strip():
+                        st.write(f"**Website:** {website}")
                     st.write(f"**Region:** {row.get('region_geo', 'N/A')}")
                     st.write(f"**Massif:** {row.get('massif_geo', 'N/A')}")
