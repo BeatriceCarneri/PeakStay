@@ -1,4 +1,4 @@
-"""PeakStay: find CAI shelters by region and municipality."""
+"""PeakStay: ... ."""
 
 import streamlit as st
 
