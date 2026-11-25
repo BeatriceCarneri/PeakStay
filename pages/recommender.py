@@ -1,16 +1,14 @@
 """PeakStay: find CAI shelters by region and municipality."""
 
-from pathlib import Path
-
-import streamlit as st
 import math as mt
-import pandas as pd
 
-from peakstay.api import fetch_all_shelters, load_raw, save_raw
-from peakstay.cleaning import build_dataframe, clean_altitude, keep_staffed_open, normalize_text
+import pandas as pd
+import streamlit as st
+
+from peakstay.cleaning import keep_staffed_open
+from peakstay.data import load_all_shelters
 from peakstay.recommender import recommend
 
-no
 
 # Add extra top padding so the Streamlit header bar does not overlap the title
 st.markdown(
@@ -24,26 +22,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-RAW_PATH = Path(__file__).parent.parent / "data" / "raw" / "shelters.json"
+df = keep_staffed_open(load_all_shelters())
 
-
-@st.cache_data
-def load_data():
-    """Load the shelters (download them the first time) and clean them."""
-    if RAW_PATH.exists():
-        shelters = load_raw(RAW_PATH)
-    else:
-        shelters = fetch_all_shelters()
-        save_raw(shelters, RAW_PATH)
-
-    df = build_dataframe(shelters)
-    df = clean_altitude(df)
-    df = keep_staffed_open(df)
-    df = normalize_text(df)
-    return df
-
-
-df = load_data()
 
 st.title("PeakStay")
 st.caption("A recommender for CAI mountain shelters")
