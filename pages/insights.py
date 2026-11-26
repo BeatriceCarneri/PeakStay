@@ -6,39 +6,41 @@ import pandas as pd
 import streamlit as st
 
 from peakstay.data import load_all_shelters
+from matplotlib.ticker import MaxNLocator
 
 df_all = load_all_shelters()
-df_bivacchi = df_all[df_all["type"].str.strip() == "Bivacco"].reset_index(drop=True)
+df_bivouacs = df_all[df_all["type"].str.strip() == "Bivacco"].reset_index(drop=True)
 
-def compute_bivacchi_stats(df_bivacchi: pd.DataFrame, scope: str = "Tutta Italia") -> dict:
-    """Compute altitude statistics for Italy or a specific region using NumPy."""
-    subset = df_bivacchi if scope == "Italiy" else df_bivacchi[df_bivacchi["region_geo"] == scope]
+if "status" in df_bivouacs.columns:
+    df_bivouacs = df_bivouacs[
+        df_bivouacs["status"].astype(str).str.strip().str.lower() == "in attività"
+    ].copy()
+regioni_estere = ["Savoia Francia", "Svizzera"]
+df_bivouacs = df_bivouacs[~df_bivouacs["region_geo"].isin(regioni_estere)].copy()
+
+def compute_bivouacs_stats(df_bivouacs: pd.DataFrame, scope: str = "Italy") -> dict:
+    """Compute altitude statistics for Italy or a specific region."""
+    subset = df_bivouacs if scope == "Italy" else df_bivouacs[df_bivouacs["region_geo"] == scope]
     altitudes = subset["altitude_geo"].dropna().to_numpy(dtype=float)
-    national_altitudes = df_bivacchi["altitude_geo"].dropna().to_numpy(dtype=float)
 
     if len(altitudes) == 0:
         return {}
 
-    mean_val = float(np.mean(altitudes))
-    national_mean = float(np.mean(national_altitudes)) if len(national_altitudes) > 0 else mean_val
-
     return {
-        "count": int(len(subset)),
-        "mean": mean_val,
+        "count": int(len(altitudes)),
+        "mean": float(np.mean(altitudes)),
         "median": float(np.median(altitudes)),
-        "std": float(np.std(altitudes)),
         "max": float(np.max(altitudes)),
-        "delta_national": mean_val - national_mean,
     }
 
 
-def plot_bivacchi_altitude(df_bivacchi: pd.DataFrame, scope: str = "Tutta Italia"):
+def plot_bivouacs_altitude(df_bivouacs: pd.DataFrame, scope: str = "Italy"):
     """Plot altitude histogram with mean and median lines."""
-    subset = df_bivacchi if scope == "Italy" else df_bivacchi[df_bivacchi["region_geo"] == scope]
+    subset = df_bivouacs if scope == "Italy" else df_bivouacs[df_bivouacs["region_geo"] == scope]
     altitudes = subset["altitude_geo"].dropna().to_numpy(dtype=float)
 
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.hist(altitudes, bins=15, color="#2E6F40", edgecolor="white", alpha=0.85)
+    ax.hist(altitudes, bins="auto", color="#2E6F40", edgecolor="white", alpha=0.85)
 
     if len(altitudes) > 0:
         mean_alt = np.mean(altitudes)
@@ -47,126 +49,169 @@ def plot_bivacchi_altitude(df_bivacchi: pd.DataFrame, scope: str = "Tutta Italia
         ax.axvline(median_alt, color="#F0AD4E", linestyle=":", linewidth=2.0, label=f"Mediana: {int(median_alt)} m")
         ax.legend()
 
-    ax.set_title(f"Distribuzione Altitudine Bivacchi ({scope})")
-    ax.set_xlabel("Altitudine (m s.l.m.)")
-    ax.set_ylabel("Numero di bivacchi")
+    ax.set_title(f"Altitude distribution of bivouacs ({scope})")
+    ax.set_xlabel("Altitude (masl)")
+    ax.set_ylabel("Number of bivouacs")
     ax.grid(axis="y", linestyle="--", alpha=0.4)
     fig.tight_layout()
+    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     return fig
 
 
-def plot_bivacchi_territory(df_bivacchi: pd.DataFrame, scope: str = "Tutta Italia", top_n: int = 10):
-    """Plot top regions for Italy or top provinces/areas for a single region."""
+def plot_bivouacs_beds_vs_altitude(df_bivouacs: pd.DataFrame, scope: str = "Italy"):
+    """Plot capacity (number of beds) vs altitude for Italy or a single region."""
+    subset = df_bivouacs if scope == "Italy" else df_bivouacs[df_bivouacs["region_geo"] == scope]
+    
+    beds_col = "posti_totali_service" 
+    
     fig, ax = plt.subplots(figsize=(6, 4))
+    
+    # Filtra i dati validi
+    valid_data = subset.dropna(subset=["altitude_geo", beds_col]).copy()
+    valid_data["altitude_geo"] = valid_data["altitude_geo"].astype(float)
+    valid_data[beds_col] = valid_data[beds_col].astype(float)
 
-    if scope == "Tutta Italia":
-        counts = df_bivacchi["region_geo"].dropna().value_counts().head(top_n)[::-1]
-        title = f"Top {top_n} Regioni per Numero di Bivacchi"
-    else:
-        subset = df_bivacchi[df_bivacchi["region_geo"] == scope]
-        group_col = "province" if "province" in subset.columns and subset["province"].notna().any() else "region_geo"
-        counts = subset[group_col].dropna().value_counts().head(top_n)[::-1]
-        title = f"Distribuzione Bivacchi in {scope}"
+    if not valid_data.empty:
+        ax.scatter(
+            valid_data["altitude_geo"],
+            valid_data[beds_col],
+            color="#4B749F",
+            s=80 if scope != "Italy" else 35,
+            alpha=0.85,
+            edgecolors="black",
+            zorder=3
+        )
 
-    bars = ax.barh(counts.index.astype(str), counts.values, color="#3B7A9E")
-    ax.bar_label(bars, padding=4, fontsize=9)
-    ax.set_title(title)
-    ax.set_xlabel("Numero di bivacchi")
-    ax.set_xlim(0, max(counts.values) * 1.15 if len(counts) > 0 else 10)
-    ax.grid(axis="x", linestyle="--", alpha=0.4)
+        name_col = next((col for col in ["alias"] if col in valid_data.columns), None)
+        if scope != "Italy" and name_col and len(valid_data) <= 15:
+            for _, row in valid_data.iterrows():
+                ax.annotate(
+                    str(row[name_col]),
+                    (row["altitude_geo"], row[beds_col]),
+                    textcoords="offset points",
+                    xytext=(0, 7),
+                    ha="center",
+                    fontsize=8,
+                    color="#1f2937"
+                )
+
+    ax.set_title(f"Number of beds vs Altitude ({scope})")
+    ax.set_xlabel("Altitude (masl)")
+    ax.set_ylabel("Number of beds")
+    ax.yaxis.get_major_locator().set_params(integer=True)
+    ax.grid(True, linestyle="--", alpha=0.4, zorder=0)
     fig.tight_layout()
     return fig
 
 
-def plot_bivacchi_map(df_bivacchi: pd.DataFrame, scope: str = "Tutta Italia"):
-    """Plot geographic scatter (lon vs lat) colored by altitude."""
-    subset = df_bivacchi if scope == "Tutta Italia" else df_bivacchi[df_bivacchi["region_geo"] == scope]
-    geo = subset.dropna(subset=["lat", "lon", "altitude_geo"])
+def plot_bivouacs_year(df_bivouacs: pd.DataFrame, scope: str = "Italy"):
+    """Plot bivouacs construction year distribution or timeline."""
+    subset = df_bivouacs if scope == "Italy" else df_bivouacs[df_bivouacs["region_geo"] == scope]
+    
+    # Cerca automaticamente la colonna dell'anno di costruzione
+    possible_year_cols = ["buildYear_certification"]
+    year_col = next((col for col in possible_year_cols if col in df_bivouacs.columns), None)
+    
+    fig, ax = plt.subplots(figsize=(8, 3.8))
+    
+    if year_col is None:
+        ax.text(
+            0.5, 0.5,
+            f"Column year not found.\nAvailable columns:\n{list(df_bivouacs.columns)}",
+            ha="center", va="center", fontsize=8, wrap=True
+        )
+        ax.axis("off")
+        return fig
+    
+    # Estrae l'anno numerico a 4 cifre (gestisce anche stringhe tipo "1974" o "12/08/1974")
+    years = subset[year_col].dropna().astype(str).str.extract(r"(\d{4})")[0].dropna().astype(int)
 
-    fig, ax = plt.subplots(figsize=(8, 4.2))
-    scatter = ax.scatter(
-        geo["lon"],
-        geo["lat"],
-        c=geo["altitude_geo"],
-        cmap="viridis",
-        alpha=0.85,
-        edgecolors="black",
-        linewidth=0.4,
-        s=45,
-    )
-    cbar = fig.colorbar(scatter, ax=ax)
-    cbar.set_label("Altitudine (m)")
+    if years.empty:
+        ax.text(0.5, 0.5, f"No data for {scope}", ha="center", va="center")
+        ax.axis("off")
+        return fig
 
-    ax.set_title(f"Mappa Geografica e Quote dei Bivacchi ({scope})")
-    ax.set_xlabel("Longitudine")
-    ax.set_ylabel("Latitudine")
-    ax.grid(True, linestyle="--", alpha=0.35)
+    valid_rows = subset.loc[years.index].copy()
+    valid_rows["year_num"] = years
+
+    # Conta i bivacchi per anno e calcola la somma cumulativa
+    counts_by_year = valid_rows["year_num"].value_counts().sort_index()
+    cumulative_bivouacs = counts_by_year.cumsum()
+
+    # Disegna la linea cumulativa e l'area sottostante
+    ax.plot(cumulative_bivouacs.index, cumulative_bivouacs.values, color="#2E7D32", linewidth=2.5, marker="o", markersize=5)
+    ax.fill_between(cumulative_bivouacs.index, cumulative_bivouacs.values, color="#2E7D32", alpha=0.15)
+
+    ax.xaxis.get_major_locator().set_params(integer=True)
+    ax.yaxis.get_major_locator().set_params(integer=True)
+
+    ax.set_title(f"Cumulative number of bivouacs by year ({scope})")
+    ax.set_xlabel("Year")
+    ax.set_ylabel("Number of bivouacs")
+    ax.grid(True, linestyle="--", alpha=0.4)
     fig.tight_layout()
     return fig
 
 
-# --- INTERFACCIA STREAMLIT ---
+# STREAMLIT INTERFACE 
 
 
-st.title("Insights Bivacchi CAI")
-st.write("Esplora i dati nazionali o filtra per regione. Clicca su un bivacco nell'elenco per aprire la sua scheda dettagliata.")
+st.title("Insights about CAI bivouacs")
+st.write("Explore national data or filter by region. Click on a bivouac in the list for more info."
+)
 
-# 1. Selettore ambito (default: Tutta Italia)
-regions = sorted(df_bivacchi["region_geo"].dropna().unique().tolist())
-options = ["Tutta Italia"] + regions
-selected_scope = st.selectbox("Seleziona l'area da analizzare", options, index=0)
+# (Default: Italy)
+regions = sorted(df_bivouacs["region_geo"].dropna().unique().tolist())
+options = ["Italy"] + regions
+selected_scope = st.selectbox("Select region", options, index=0)
 
-if selected_scope == "Tutta Italia":
-    df_view = df_bivacchi.reset_index(drop=True)
+if selected_scope == "Italy":
+    df_bivouacs = df_bivouacs.reset_index(drop=True)
 else:
-    df_view = df_bivacchi[df_bivacchi["region_geo"] == selected_scope].reset_index(drop=True)
+    df_bivouacs = df_bivouacs[df_bivouacs["region_geo"] == selected_scope].reset_index(drop=True)
 
-# 2. Metriche principali
-stats = compute_bivacchi_stats(df_bivacchi, selected_scope)
+# 2. Metrics
+stats = compute_bivouacs_stats(df_bivouacs, selected_scope)
 if stats:
-    st.subheader(f"Indicatori chiave: {selected_scope}")
+    st.subheader(f"Key indicators for {selected_scope}")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Totale Bivacchi", stats["count"])
-    c2.metric(
-        "Altitudine Media",
-        f"{int(stats['mean'])} m",
-        delta=None if selected_scope == "Tutta Italia" else f"{int(stats['delta_national']):+d} m vs Italia",
-    )
-    c3.metric("Altitudine Mediana", f"{int(stats['median'])} m")
-    c4.metric("Quota Massima", f"{int(stats['max'])} m")
+    c1.metric("Total number of bivouacs", stats["count"])
+    c2.metric("Average Altitude", f"{int(stats['mean'])} m")
+    c3.metric("Median Altitude", f"{int(stats['median'])} m")
+    c4.metric("Maximum Altitude", f"{int(stats['max'])} m")
 
 st.divider()
 
-# 3. Grafici
-st.subheader(f"Analisi Grafica: {selected_scope}")
+# 3. Graphs
+st.subheader(f"Graphical Analysis: {selected_scope}")
 col_left, col_right = st.columns(2)
 
 with col_left:
-    fig_alt = plot_bivacchi_altitude(df_bivacchi, selected_scope)
+    fig_alt = plot_bivouacs_altitude(df_bivouacs, selected_scope)
     st.pyplot(fig_alt)
     plt.close(fig_alt)
 
 with col_right:
-    fig_ter = plot_bivacchi_territory(df_bivacchi, selected_scope)
+    fig_ter = plot_bivouacs_beds_vs_altitude(df_bivouacs, selected_scope)
     st.pyplot(fig_ter)
     plt.close(fig_ter)
 
-if {"lat", "lon"}.issubset(df_view.columns) and len(df_view[["lat", "lon"]].dropna()) > 0:
-    fig_map = plot_bivacchi_map(df_bivacchi, selected_scope)
-    st.pyplot(fig_map)
-    plt.close(fig_map)
-
 st.divider()
 
-# 4. Lista completa cliccabile + Scheda dettagli
-st.subheader(f"Elenco Bivacchi ({len(df_view)})")
-st.caption("Seleziona una riga nella tabella per visualizzare tutte le informazioni disponibili sul bivacco.")
+fig_year = plot_bivouacs_year(df_bivouacs, selected_scope)
+st.pyplot(fig_year)
+plt.close(fig_year)
 
-candidate_cols = ["name", "region_geo", "province", "municipality", "altitude_geo", "beds", "cai_section"]
-display_cols = [c for c in candidate_cols if c in df_view.columns]
+
+# 4. Lista completa cliccabile + Scheda dettagli
+st.subheader(f"List of bivouacs ({len(df_bivouacs)})")
+st.caption("Select a row to view more info about a bivouac.")
+
+candidate_cols = ["alias", "altitude_geo", "region_geo", "province_geo", "municipality_geo"]
+display_cols = [c for c in candidate_cols if c in df_bivouacs.columns]
 
 event = st.dataframe(
-    df_view[display_cols],
+    df_bivouacs[display_cols],
     use_container_width=True,
     hide_index=True,
     on_select="rerun",
@@ -176,19 +221,15 @@ event = st.dataframe(
 selected_rows = event.selection.rows
 if selected_rows:
     row_idx = selected_rows[0]
-    bivacco = df_view.iloc[row_idx]
+    bivacco = df_bivouacs.iloc[row_idx]
 
     with st.container(border=True):
-        st.markdown(f"### {bivacco.get('name', 'Bivacco selezionato')}")
+        st.markdown(f"### {bivacco.get('alias', 'Selected bivouac')}")
         info_col, map_col = st.columns([2, 1])
 
         with info_col:
-            for col in df_view.columns:
+            for col in df_bivouacs.columns:
                 val = bivacco[col]
                 if pd.notna(val) and str(val).strip() != "":
                     label = col.replace("_", " ").capitalize()
                     st.write(f"**{label}:** {val}")
-
-        with map_col:
-            if {"lat", "lon"}.issubset(df_view.columns) and pd.notna(bivacco["lat"]) and pd.notna(bivacco["lon"]):
-                st.map(df_view.iloc[[row_idx]][["lat", "lon"]], zoom=11)
