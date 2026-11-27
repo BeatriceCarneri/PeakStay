@@ -1,4 +1,4 @@
-"""PeakStay: ... ."""
+"""PeakStay: Streamlit entry point (page configuration and navigation)."""
 
 import streamlit as st
 
